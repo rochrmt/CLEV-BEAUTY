@@ -1,0 +1,72 @@
+# ============================================================
+#  AGEO — Stack Docker (app + MySQL) avec Traefik
+#  Prérequis : Traefik doit tourner sur /opt/traefik/
+#  Usage : docker compose up -d --build
+#  Accès : https://clev-beauty.mbila.pro (SSL automatique)
+# ============================================================
+
+services:
+  # ── Base de données MySQL (interne, non exposée) ────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: clev-beauty-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ClevBeauty@2026!
+      MYSQL_DATABASE: clev_beauty
+    volumes:
+      - clev-beauty-mysql-data:/var/lib/mysql
+    expose:
+      - "3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Application (backend + frontend) ─────────────────────────────────────
+  app:
+    build: .
+    container_name: clev-beauty-app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PORT: "3001"
+      DB_SERVER: mysql
+      DB_PORT: "3306"
+      DB_NAME: clev_beauty
+      DB_USER: root
+      DB_PASSWORD: ClevBeauty@2026!
+      JWT_SECRET: bb855ba5fefc80325ffdce1317aa993274e8bbff1c6b62da941e2d2bd1120f91cfbf1ab86d4ed45f19e8374e9b02fe0f
+      JWT_EXPIRES: 10h
+      LICENCE_SECRET: 1dcce7fc2477944ba45eef21580464f97fd247b5568cec1dff6d9c280a60eab79a3f74fdc11a8496f888c471dbcf2487
+      LICENCE_KEY: ""
+    volumes:
+      - clev-beauty-uploads:/app/server/uploads
+    expose:
+      - "3001"
+    restart: unless-stopped
+    networks:
+      - default
+      - traefik-proxy
+    labels:
+      - "traefik.enable=true"
+      # Router : domaine de l'app
+      - "traefik.http.routers.clev-beauty.rule=Host(`clev-beauty.mbila.pro`)"
+      - "traefik.http.routers.clev-beauty.entrypoints=websecure"
+      - "traefik.http.routers.clev-beauty.tls.certresolver=letsencrypt"
+      # Service : port interne de l'app
+      - "traefik.http.services.clev-beauty.loadbalancer.server.port=3001"
+      # Middlewares : gzip + sécurité
+      - "traefik.http.routers.clev-beauty.middlewares=gzip@file,security-headers@file"
+
+volumes:
+  clev-beauty-mysql-data:
+  clev-beauty-uploads:
+
+networks:
+  traefik-proxy:
+    name: traefik-proxy
+    external: true
